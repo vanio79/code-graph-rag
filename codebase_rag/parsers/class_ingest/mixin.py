@@ -90,33 +90,43 @@ class ClassIngestMixin:
         language: cs.SupportedLanguage,
         queries: dict[cs.SupportedLanguage, LanguageQueries],
     ) -> None:
-        lang_queries = queries[language]
-        if not (query := lang_queries[cs.QUERY_CLASSES]):
-            return
+        try:
+            lang_queries = queries.get(language)
+            if not lang_queries:
+                return
+            if not (query := lang_queries[cs.QUERY_CLASSES]):
+                return
 
-        lang_config: LanguageSpec = lang_queries[cs.QUERY_CONFIG]
-        cursor = QueryCursor(query)
-        captures = cursor.captures(root_node)
-        class_nodes = captures.get(cs.CAPTURE_CLASS, [])
-        module_nodes = captures.get(cs.ONEOF_MODULE, [])
+            lang_config: LanguageSpec = lang_queries[cs.QUERY_CONFIG]
+            cursor = QueryCursor(query)
+            captures = cursor.captures(root_node)
+            class_nodes = captures.get(cs.CAPTURE_CLASS, [])
+            module_nodes = captures.get(cs.ONEOF_MODULE, [])
 
-        if language == cs.SupportedLanguage.CPP:
-            class_nodes.extend(self._find_cpp_exported_classes(root_node))
+            if language == cs.SupportedLanguage.CPP:
+                class_nodes.extend(self._find_cpp_exported_classes(root_node))
 
-        file_path = self.module_qn_to_file_path.get(module_qn)
+            file_path = self.module_qn_to_file_path.get(module_qn)
 
-        for class_node in class_nodes:
-            if isinstance(class_node, Node):
-                self._process_class_node(
-                    class_node,
-                    module_qn,
-                    language,
-                    lang_queries,
-                    lang_config,
-                    file_path,
-                )
+            for class_node in class_nodes:
+                if isinstance(class_node, Node):
+                    self._process_class_node(
+                        class_node,
+                        module_qn,
+                        language,
+                        lang_queries,
+                        lang_config,
+                        file_path,
+                    )
 
-        self._process_inline_modules(module_nodes, module_qn, lang_config)
+            self._process_inline_modules(module_nodes, module_qn, lang_config)
+        except Exception as e:
+            logger.error(
+                f"Failed in _ingest_classes_and_methods for {module_qn} ({language}): {e}"
+            )
+            import traceback
+
+            logger.debug(traceback.format_exc())
 
     def _process_class_node(
         self,
@@ -127,26 +137,40 @@ class ClassIngestMixin:
         lang_config: LanguageSpec,
         file_path: Path | None,
     ) -> None:
-        if language == cs.SupportedLanguage.RUST and class_node.type == cs.TS_IMPL_ITEM:
-            self._ingest_rust_impl_methods(
-                class_node, module_qn, language, lang_queries
+        try:
+            if (
+                language == cs.SupportedLanguage.RUST
+                and class_node.type == cs.TS_IMPL_ITEM
+            ):
+                self._ingest_rust_impl_methods(
+                    class_node, module_qn, language, lang_queries
+                )
+                return
+
+            identity = id_.resolve_class_identity(
+                class_node,
+                module_qn,
+                language,
+                lang_config,
+                file_path,
+                self.repo_path,
+                self.project_name,
             )
-            return
+            if not identity:
+                return
 
-        identity = id_.resolve_class_identity(
-            class_node,
-            module_qn,
-            language,
-            lang_config,
-            file_path,
-            self.repo_path,
-            self.project_name,
-        )
-        if not identity:
-            return
+            class_qn, class_name, is_exported = identity
+            node_type = nt.determine_node_type(
+                class_node, class_name, class_qn, language
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to process class node in {module_qn} ({language}): {e}"
+            )
+            import traceback
 
-        class_qn, class_name, is_exported = identity
-        node_type = nt.determine_node_type(class_node, class_name, class_qn, language)
+            logger.debug(traceback.format_exc())
+            return
 
         class_props: PropertyDict = {
             cs.KEY_QUALIFIED_NAME: class_qn,

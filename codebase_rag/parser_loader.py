@@ -148,6 +148,12 @@ def _import_language_loaders() -> dict[cs.SupportedLanguage, LanguageLoader]:
             cs.QUERY_LANGUAGE,
             cs.SupportedLanguage.LUA,
         ),
+        LanguageImport(
+            cs.SupportedLanguage.NIM,
+            cs.TreeSitterModule.NIM,
+            cs.QUERY_LANGUAGE,
+            cs.SupportedLanguage.NIM,
+        ),
     ]
 
     loaders: dict[cs.SupportedLanguage, LanguageLoader] = {
@@ -202,7 +208,13 @@ def _build_combined_import_pattern(lang_config: LanguageSpec) -> str:
 
 
 def _create_optional_query(language: Language, pattern: str | None) -> Query | None:
-    return Query(language, pattern) if pattern else None
+    if not pattern:
+        return None
+    try:
+        return Query(language, pattern)
+    except Exception as e:
+        logger.warning(f"Failed to create query with pattern: {pattern}. Error: {e}")
+        return None
 
 
 def _create_locals_query(
@@ -269,6 +281,9 @@ def _process_language(
         return True
     except Exception as e:
         logger.warning(ls.GRAMMAR_LOAD_FAILED.format(lang=lang_name, error=e))
+        import traceback
+
+        logger.debug(traceback.format_exc())
         return False
 
 
@@ -281,6 +296,7 @@ def load_parsers() -> tuple[
 
     for lang_key, lang_config in deepcopy(LANGUAGE_SPECS).items():
         lang_name = cs.SupportedLanguage(lang_key)
+
         if _process_language(lang_name, lang_config, parsers, queries):
             available_languages.append(lang_name)
 

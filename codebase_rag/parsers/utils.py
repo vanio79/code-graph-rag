@@ -34,7 +34,10 @@ def get_function_captures(
     language: cs.SupportedLanguage,
     queries: dict[cs.SupportedLanguage, LanguageQueries],
 ) -> FunctionCapturesResult | None:
-    lang_queries = queries[language]
+    lang_queries = queries.get(language)
+    if not lang_queries:
+        return None
+
     lang_config = lang_queries[cs.QUERY_CONFIG]
 
     if not (query := lang_queries[cs.QUERY_FUNCTIONS]):

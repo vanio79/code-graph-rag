@@ -24,6 +24,7 @@ def resolve_fqn_from_ast(
     try:
         func_name = fqn_config.get_name(func_node)
         if not func_name:
+            # logger.debug(f"DEBUG: No name for node type {func_node.type}")
             return None
         parts = [func_name]
         current = func_node.parent

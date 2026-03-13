@@ -102,11 +102,14 @@ class ImportProcessor:
 
         lang_config = queries[language]["config"]
 
-        self.import_mapping[module_qn] = {}
+        if module_qn not in self.import_mapping:
+            self.import_mapping[module_qn] = {}
 
         try:
             cursor = get_query_cursor(imports_query)
             captures = cursor.captures(root_node)
+            if not captures:
+                return
 
             match language:
                 case cs.SupportedLanguage.PYTHON:
@@ -123,6 +126,8 @@ class ImportProcessor:
                     self._parse_cpp_imports(captures, module_qn)
                 case cs.SupportedLanguage.LUA:
                     self._parse_lua_imports(captures, module_qn)
+                case cs.SupportedLanguage.NIM:
+                    self._parse_nim_imports(captures, module_qn, language)
                 case _:
                     self._parse_generic_imports(captures, module_qn, lang_config)
 
@@ -306,6 +311,8 @@ class ImportProcessor:
                     return self._resolve_js_internal_module(full_name)
             case cs.SupportedLanguage.RUST:
                 return self._resolve_rust_import_path(full_name, module_qn)
+            case cs.SupportedLanguage.NIM:
+                return self._resolve_nim_module_path(full_name, module_qn)
 
         module_path = self.stdlib_extractor.extract_module_path(full_name, language)
         if not module_path.startswith(project_prefix):
@@ -792,6 +799,90 @@ class ImportProcessor:
         )
         logger.debug(log_template, name=module_name)
 
+    def _parse_nim_imports(
+        self, captures: dict, module_qn: str, language: cs.SupportedLanguage
+    ) -> None:
+        """Handle all types of Nim imports."""
+        for import_node in captures.get(cs.CAPTURE_IMPORT, []):
+            if import_node.type in (
+                cs.TS_NIM_IMPORT_STATEMENT,
+                cs.TS_NIM_INCLUDE_STATEMENT,
+            ):
+                # import lib1, lib2 as alias
+                for child in import_node.children:
+                    if child.type == "expression_list":
+                        for expr in child.children:
+                            if expr.type in (cs.TS_IDENTIFIER, "symbol_declaration"):
+                                name = safe_decode_text(expr)
+                                if name:
+                                    resolved_qn = self._resolve_module_path(
+                                        name, module_qn, language
+                                    )
+                                    self.import_mapping[module_qn][name] = resolved_qn
+                                    logger.debug(
+                                        ls.IMP_NIM_IMPORT, name=name, qn=resolved_qn
+                                    )
+                            elif expr.type == "infix_expression":
+                                # Handle both 'as' alias and path separators (/)
+                                left = expr.child_by_field_name(cs.TS_FIELD_LEFT)
+                                operator = (
+                                    expr.children[1]
+                                    if len(expr.children) >= 2
+                                    else None
+                                )
+                                operator_text = (
+                                    operator.text.decode()
+                                    if operator and operator.text
+                                    else None
+                                )
+
+                                if operator_text == "as":
+                                    # import lib as alias
+                                    right = expr.child_by_field_name(cs.TS_FIELD_RIGHT)
+                                    if (name := safe_decode_text(left)) and (
+                                        alias := safe_decode_text(right)
+                                    ):
+                                        resolved_qn = self._resolve_module_path(
+                                            name, module_qn, language
+                                        )
+                                        self.import_mapping[module_qn][alias] = (
+                                            resolved_qn
+                                        )
+                                        logger.debug(
+                                            ls.IMP_NIM_ALIAS,
+                                            alias=alias,
+                                            name=name,
+                                            qn=resolved_qn,
+                                        )
+                                elif operator_text == "/":
+                                    # import pkg/submodule - use full path as name
+                                    full_path = safe_decode_text(expr)
+                                    if full_path:
+                                        resolved_qn = self._resolve_module_path(
+                                            full_path, module_qn, language
+                                        )
+                                        self.import_mapping[module_qn][full_path] = (
+                                            resolved_qn
+                                        )
+                                        logger.debug(
+                                            ls.IMP_NIM_IMPORT,
+                                            name=full_path,
+                                            qn=resolved_qn,
+                                        )
+            elif import_node.type == cs.TS_NIM_FROM_STATEMENT:
+                # from lib import sym1, sym2
+                if len(import_node.children) >= 2:
+                    module_name_node = import_node.children[1]
+                    module_name = safe_decode_text(module_name_node)
+                    if module_name:
+                        resolved_qn = self._resolve_module_path(
+                            module_name, module_qn, language
+                        )
+                        self.import_mapping[module_qn][module_name] = resolved_qn
+                        logger.debug(
+                            ls.IMP_NIM_FROM, module=module_name, qn=resolved_qn
+                        )
+
     def _parse_generic_imports(
         self, captures: dict, module_qn: str, lang_config: LanguageSpec
     ) -> None:
@@ -923,6 +1014,29 @@ class ImportProcessor:
             pass
 
         return dotted
+
+    def _resolve_nim_module_path(self, import_name: str, module_qn: str) -> str:
+        # (H) Handle Nim relative and absolute imports
+        # Check if it's a local module in the same directory
+        module_parts = module_qn.split(cs.SEPARATOR_DOT)
+        if len(module_parts) > 1:
+            parent_qn = cs.SEPARATOR_DOT.join(module_parts[:-1])
+            local_qn = f"{parent_qn}{cs.SEPARATOR_DOT}{import_name}"
+
+            # rel_file needs to be relative to repo_path
+            # module_qn is project.dir.file
+            # we need dir/import_name.nim
+            parts_without_project = module_parts[1:-1]
+            rel_file = Path(*parts_without_project) / f"{import_name}{cs.EXT_NIM}"
+            if (self.repo_path / rel_file).is_file():
+                return local_qn
+
+        # Check if it's at the project root
+        root_qn = f"{self.project_name}{cs.SEPARATOR_DOT}{import_name}"
+        if (self.repo_path / f"{import_name}{cs.EXT_NIM}").is_file():
+            return root_qn
+
+        return import_name
 
     def _lua_is_stdlib_call(self, call_node: Node) -> bool:
         if not call_node.children:

@@ -58,6 +58,7 @@ class CallResolver:
         self,
         call_name: str,
         module_qn: str,
+        language: cs.SupportedLanguage,
         local_var_types: dict[str, str] | None = None,
         class_context: str | None = None,
     ) -> tuple[str, str] | None:
@@ -68,7 +69,9 @@ class CallResolver:
             return self._resolve_super_call(call_name, class_context)
 
         if cs.SEPARATOR_DOT in call_name and self._is_method_chain(call_name):
-            return self._resolve_chained_call(call_name, module_qn, local_var_types)
+            return self._resolve_chained_call(
+                call_name, module_qn, language, local_var_types
+            )
 
         if result := self._try_resolve_via_imports(
             call_name, module_qn, local_var_types
@@ -521,18 +524,15 @@ class CallResolver:
         return None
 
     def _is_method_chain(self, call_name: str) -> bool:
-        if cs.CHAR_PAREN_OPEN not in call_name or cs.CHAR_PAREN_CLOSE not in call_name:
-            return False
+        # (H) Chained call can be a.b() or a.b.c() or just a.b in Nim UFCS
         parts = call_name.split(cs.SEPARATOR_DOT)
-        method_calls = sum(
-            cs.CHAR_PAREN_OPEN in part and cs.CHAR_PAREN_CLOSE in part for part in parts
-        )
-        return method_calls >= 1 and len(parts) >= 2
+        return len(parts) >= 2
 
     def _resolve_chained_call(
         self,
         call_name: str,
         module_qn: str,
+        language: cs.SupportedLanguage,
         local_var_types: dict[str, str] | None = None,
     ) -> tuple[str, str] | None:
         match = _CHAINED_METHOD_PATTERN.search(call_name)
@@ -542,12 +542,8 @@ class CallResolver:
         final_method = match[1]
 
         object_expr = call_name[: match.start()]
-
-        if (
-            object_type
-            := self.type_inference.python_type_inference._infer_expression_return_type(
-                object_expr, module_qn, local_var_types
-            )
+        if object_type := self.type_inference.infer_expression_return_type(
+            object_expr, module_qn, language, local_var_types
         ):
             full_object_type = object_type
             if cs.SEPARATOR_DOT not in object_type:
@@ -578,6 +574,30 @@ class CallResolver:
                 )
                 return inherited_method
 
+        # (H) UFCS Fallback for Nim: try resolving as a top-level function if class-based fails
+        if language == cs.SupportedLanguage.NIM:
+            if result := self._try_resolve_same_module(final_method, module_qn):
+                return result
+            if result := self._try_resolve_ufcs_in_imports(
+                final_method, module_qn, local_var_types
+            ):
+                return result
+            if result := self._try_resolve_same_module(final_method, module_qn):
+                return result
+
+        return None
+
+    def _try_resolve_ufcs_in_imports(
+        self,
+        method_name: str,
+        module_qn: str,
+        local_var_types: dict[str, str] | None = None,
+    ) -> tuple[str, str] | None:
+        import_map = self.import_processor.import_mapping.get(module_qn, {})
+        for imported_qn in import_map.values():
+            potential_qn = f"{imported_qn}.{method_name}"
+            if potential_qn in self.function_registry:
+                return self.function_registry[potential_qn], potential_qn
         return None
 
     def _resolve_super_call(

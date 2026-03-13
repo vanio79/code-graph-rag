@@ -92,6 +92,9 @@ EXT_CCM = ".ccm"
 EXT_CS = ".cs"
 EXT_PHP = ".php"
 EXT_LUA = ".lua"
+EXT_NIM = ".nim"
+EXT_NIMS = ".nims"
+EXT_NIMBLE = ".nimble"
 
 # (H) File extension tuples by language
 PY_EXTENSIONS = (EXT_PY,)
@@ -116,12 +119,14 @@ CPP_EXTENSIONS = (
 CS_EXTENSIONS = (EXT_CS,)
 PHP_EXTENSIONS = (EXT_PHP,)
 LUA_EXTENSIONS = (EXT_LUA,)
+NIM_EXTENSIONS = (EXT_NIM, EXT_NIMS, EXT_NIMBLE)
 
 # (H) Package indicator files
 PKG_INIT_PY = "__init__.py"
 PKG_CARGO_TOML = "Cargo.toml"
 PKG_CMAKE_LISTS = "CMakeLists.txt"
 PKG_MAKEFILE = "Makefile"
+PKG_NIMBLE = "*.nimble"
 PKG_VCXPROJ_GLOB = "*.vcxproj"
 PKG_CONANFILE = "conanfile.txt"
 
@@ -448,6 +453,7 @@ class SupportedLanguage(StrEnum):
     CSHARP = "c-sharp"
     PHP = "php"
     LUA = "lua"
+    NIM = "nim"
 
 
 class LanguageStatus(StrEnum):
@@ -516,6 +522,11 @@ LANGUAGE_METADATA: dict[SupportedLanguage, LanguageMetadata] = {
         LanguageStatus.DEV,
         "Classes, functions, namespaces",
         "PHP",
+    ),
+    SupportedLanguage.NIM: LanguageMetadata(
+        LanguageStatus.DEV,
+        "Procs, methods, templates, macros, types",
+        "Nim",
     ),
 }
 
@@ -744,6 +755,7 @@ class TreeSitterModule(StrEnum):
     JAVA = "tree_sitter_java"
     CPP = "tree_sitter_cpp"
     LUA = "tree_sitter_lua"
+    NIM = "tree_sitter_nim"
 
 
 # (H) Query dict keys
@@ -1704,6 +1716,22 @@ TS_GO_METHOD_DECLARATION = "method_declaration"
 TS_GO_CALL_EXPRESSION = "call_expression"
 TS_GO_IMPORT_DECLARATION = "import_declaration"
 
+# (H) Tree-sitter Nim node types
+TS_NIM_PROC_DECLARATION = "proc_declaration"
+TS_NIM_METHOD_DECLARATION = "method_declaration"
+TS_NIM_TEMPLATE_DECLARATION = "template_declaration"
+TS_NIM_MACRO_DECLARATION = "macro_declaration"
+TS_NIM_FUNC_DECLARATION = "func_declaration"
+TS_NIM_ITERATOR_DECLARATION = "iterator_declaration"
+TS_NIM_CONVERTER_DECLARATION = "converter_declaration"
+TS_NIM_TYPE_DECLARATION = "type_declaration"
+TS_NIM_SOURCE_FILE = "source_file"
+TS_NIM_CALL = "call"
+TS_NIM_COMMAND = "command"
+TS_NIM_IMPORT_STATEMENT = "import_statement"
+TS_NIM_FROM_STATEMENT = "import_from_statement"
+TS_NIM_INCLUDE_STATEMENT = "include_statement"
+
 # (H) Tree-sitter Scala node types
 TS_SCALA_CLASS_DEFINITION = "class_definition"
 TS_SCALA_OBJECT_DEFINITION = "object_definition"
@@ -2614,6 +2642,21 @@ FQN_PHP_FUNCTION_TYPES = (
     TS_PHP_FUNCTION_STATIC_DECLARATION,
 )
 
+# (H) FQN node type tuples for Nim
+FQN_NIM_SCOPE_TYPES = (
+    TS_NIM_TYPE_DECLARATION,
+    TS_NIM_SOURCE_FILE,
+)
+FQN_NIM_FUNCTION_TYPES = (
+    TS_NIM_PROC_DECLARATION,
+    TS_NIM_METHOD_DECLARATION,
+    TS_NIM_TEMPLATE_DECLARATION,
+    TS_NIM_MACRO_DECLARATION,
+    TS_NIM_FUNC_DECLARATION,
+    TS_NIM_ITERATOR_DECLARATION,
+    TS_NIM_CONVERTER_DECLARATION,
+)
+
 # (H) LANGUAGE_SPECS node type tuples for Python
 SPEC_PY_FUNCTION_TYPES = (TS_PY_FUNCTION_DEFINITION,)
 SPEC_PY_CLASS_TYPES = (TS_PY_CLASS_DEFINITION,)
@@ -2784,6 +2827,25 @@ SPEC_PHP_CALL_TYPES = (
     TS_PHP_SCOPED_CALL_EXPRESSION,
     TS_PHP_FUNCTION_CALL_EXPRESSION,
     TS_PHP_NULLSAFE_MEMBER_CALL_EXPRESSION,
+)
+
+# (H) LANGUAGE_SPECS node type tuples for Nim
+SPEC_NIM_FUNCTION_TYPES = (
+    TS_NIM_PROC_DECLARATION,
+    TS_NIM_METHOD_DECLARATION,
+    TS_NIM_TEMPLATE_DECLARATION,
+    TS_NIM_MACRO_DECLARATION,
+    TS_NIM_FUNC_DECLARATION,
+    TS_NIM_ITERATOR_DECLARATION,
+    TS_NIM_CONVERTER_DECLARATION,
+)
+SPEC_NIM_CLASS_TYPES = (TS_NIM_TYPE_DECLARATION,)
+SPEC_NIM_MODULE_TYPES = (TS_NIM_SOURCE_FILE,)
+SPEC_NIM_CALL_TYPES = (TS_NIM_CALL, TS_NIM_COMMAND)
+SPEC_NIM_IMPORT_TYPES = (
+    TS_NIM_IMPORT_STATEMENT,
+    TS_NIM_FROM_STATEMENT,
+    TS_NIM_INCLUDE_STATEMENT,
 )
 
 # (H) LANGUAGE_SPECS node type tuples for Lua

@@ -97,6 +97,60 @@ def _rust_file_to_module(file_path: Path, repo_root: Path) -> list[str]:
         return []
 
 
+def _nim_get_name(node: Node) -> str | None:
+    result = None
+    if node.type == cs.TS_NIM_TYPE_DECLARATION:
+        # Nim types can be in a type section: type User = object
+        # We need to find the actual name identifier
+        for child in node.children:
+            if child.type == "symbol_declaration_list":
+                for subchild in child.children:
+                    if subchild.type == "symbol_declaration":
+                        name_node = subchild.child_by_field_name("name")
+                        if name_node and name_node.text:
+                            result = name_node.text.decode(cs.ENCODING_UTF8)
+                            break
+            elif child.type == "type_symbol_declaration":
+                name_node = child.child_by_field_name("name")
+                if name_node and name_node.text:
+                    result = child.text.decode(cs.ENCODING_UTF8)
+                    break
+            if result:
+                break
+
+    if not result and node.type == cs.TS_NIM_PROC_DECLARATION:
+        # proc getName*(...)
+        # Find identifier after 'proc'
+        found_proc = False
+        for child in node.children:
+            if child.type == "proc":
+                found_proc = True
+            elif found_proc and child.type == cs.TS_IDENTIFIER:
+                result = child.text.decode(cs.ENCODING_UTF8)
+                break
+            elif found_proc and child.type == "postfix_expression":
+                # postfix_expression is used for exported procs: getName*
+                # first child is identifier
+                if child.children and child.children[0].type == cs.TS_IDENTIFIER:
+                    result = child.children[0].text.decode(cs.ENCODING_UTF8)
+                    break
+
+    if not result:
+        # Most others have a 'name' field
+        name_node = node.child_by_field_name("name")
+        if name_node and name_node.text:
+            result = name_node.text.decode(cs.ENCODING_UTF8)
+
+    if not result:
+        result = _generic_get_name(node)
+
+    # (H) Strip trailing asterisk used for exporting in Nim
+    if result and result.endswith("*"):
+        result = result[:-1]
+
+    return result
+
+
 def _cpp_get_name(node: Node) -> str | None:
     if node.type in cs.CPP_NAME_NODE_TYPES:
         name_node = node.child_by_field_name(cs.FIELD_NAME)
@@ -189,6 +243,13 @@ PHP_FQN_SPEC = FQNSpec(
     file_to_module_parts=_generic_file_to_module,
 )
 
+NIM_FQN_SPEC = FQNSpec(
+    scope_node_types=frozenset(cs.FQN_NIM_SCOPE_TYPES),
+    function_node_types=frozenset(cs.FQN_NIM_FUNCTION_TYPES),
+    get_name=_nim_get_name,
+    file_to_module_parts=_generic_file_to_module,
+)
+
 LANGUAGE_FQN_SPECS: dict[cs.SupportedLanguage, FQNSpec] = {
     cs.SupportedLanguage.PYTHON: PYTHON_FQN_SPEC,
     cs.SupportedLanguage.JS: JS_FQN_SPEC,
@@ -201,6 +262,7 @@ LANGUAGE_FQN_SPECS: dict[cs.SupportedLanguage, FQNSpec] = {
     cs.SupportedLanguage.SCALA: SCALA_FQN_SPEC,
     cs.SupportedLanguage.CSHARP: CSHARP_FQN_SPEC,
     cs.SupportedLanguage.PHP: PHP_FQN_SPEC,
+    cs.SupportedLanguage.NIM: NIM_FQN_SPEC,
 }
 
 
@@ -407,6 +469,20 @@ LANGUAGE_SPECS: dict[cs.SupportedLanguage, LanguageSpec] = {
         module_node_types=cs.SPEC_LUA_MODULE_TYPES,
         call_node_types=cs.SPEC_LUA_CALL_TYPES,
         import_node_types=cs.SPEC_LUA_IMPORT_TYPES,
+    ),
+    cs.SupportedLanguage.NIM: LanguageSpec(
+        language=cs.SupportedLanguage.NIM,
+        file_extensions=cs.NIM_EXTENSIONS,
+        function_node_types=cs.SPEC_NIM_FUNCTION_TYPES,
+        class_node_types=cs.SPEC_NIM_CLASS_TYPES,
+        module_node_types=cs.SPEC_NIM_MODULE_TYPES,
+        call_node_types=(cs.TS_NIM_CALL,),
+        import_node_types=(
+            cs.TS_NIM_IMPORT_STATEMENT,
+            cs.TS_NIM_INCLUDE_STATEMENT,
+            cs.TS_NIM_FROM_STATEMENT,
+        ),
+        package_indicators=(cs.PKG_NIMBLE,),
     ),
 }
 

@@ -72,28 +72,31 @@ class FunctionIngestMixin:
 
         for func_node in captures.get(cs.CAPTURE_FUNCTION, []):
             if not isinstance(func_node, Node):
-                logger.warning(
-                    ls.FUNC_EXPECTED_NODE.format(
-                        actual_type=type(func_node), value=func_node
-                    )
-                )
                 continue
-            if self._is_method(func_node, lang_config):
+
+            is_method = self._is_method(func_node, lang_config)
+            if is_method:
                 continue
 
             if language == cs.SupportedLanguage.CPP:
                 if self._handle_cpp_out_of_class_method(func_node, module_qn):
                     continue
 
-            resolution = self._resolve_function_identity(
-                func_node, module_qn, language, lang_config, file_path
-            )
-            if not resolution:
-                continue
+            try:
+                resolution = self._resolve_function_identity(
+                    func_node, module_qn, language, lang_config, file_path
+                )
+                if not resolution:
+                    continue
 
-            self._register_function(
-                func_node, resolution, module_qn, language, lang_config
-            )
+                self._register_function(
+                    func_node, resolution, module_qn, language, lang_config
+                )
+            except Exception as e:
+                logger.error(f"Failed to register function in {module_qn}: {e}")
+                import traceback
+
+                logger.debug(traceback.format_exc())
 
     def _resolve_function_identity(
         self,

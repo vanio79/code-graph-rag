@@ -6,6 +6,7 @@ import pytest
 import tree_sitter_python as tsp
 from tree_sitter import Language, Parser
 
+from codebase_rag import constants as cs
 from codebase_rag.graph_updater import FunctionRegistryTrie, GraphUpdater
 from codebase_rag.parser_loader import load_parsers
 from codebase_rag.parsers.import_processor import ImportProcessor
@@ -149,7 +150,7 @@ class TestImportParsing:
         try:
             result = (
                 graph_updater.factory.call_processor._resolver.resolve_function_call(
-                    "nonexistent", module_qn
+                    "nonexistent", module_qn, cs.SupportedLanguage.PYTHON
                 )
             )
             assert result is None

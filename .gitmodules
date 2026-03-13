@@ -1,0 +1,3 @@
+[submodule "grammars/tree-sitter-nim"]
+	path = grammars/tree-sitter-nim
+	url = https://github.com/alaviss/tree-sitter-nim

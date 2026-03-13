@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from loguru import logger
+from tree_sitter import QueryCursor
 
 from .. import constants as cs
 from .. import logs as ls
@@ -66,14 +67,6 @@ class DefinitionProcessor(
         )
 
         try:
-            if language not in queries:
-                logger.warning(
-                    ls.DEF_UNSUPPORTED_LANGUAGE.format(
-                        language=language, path=file_path
-                    )
-                )
-                return None
-
             self._handler = get_handler(language)
             source_bytes = file_path.read_bytes()
             lang_queries = queries[language]
@@ -127,7 +120,22 @@ class DefinitionProcessor(
             if language == cs.SupportedLanguage.CPP:
                 self._ingest_cpp_module_declarations(root_node, module_qn, file_path)
             self._ingest_all_functions(root_node, module_qn, language, queries)
-            self._ingest_classes_and_methods(root_node, module_qn, language, queries)
+
+            try:
+                self._ingest_nim_types_and_methods(root_node, module_qn, queries)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to ingest Nim types and methods for {module_qn}: {e}"
+                )
+
+            try:
+                self._ingest_classes_and_methods(
+                    root_node, module_qn, language, queries
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to ingest classes and methods for {module_qn}: {e}"
+                )
             self._ingest_object_literal_methods(root_node, module_qn, language, queries)
             self._ingest_commonjs_exports(root_node, module_qn, language, queries)
             if language in {cs.SupportedLanguage.JS, cs.SupportedLanguage.TS}:
@@ -142,6 +150,49 @@ class DefinitionProcessor(
         except Exception as e:
             logger.error(ls.DEF_PARSE_FAILED.format(path=file_path, error=e))
             return None
+
+    def _ingest_nim_types_and_methods(
+        self,
+        root_node: Node,
+        module_qn: str,
+        queries: dict[cs.SupportedLanguage, LanguageQueries],
+    ) -> None:
+        if cs.SupportedLanguage.NIM not in queries:
+            return
+        lang_queries = queries[cs.SupportedLanguage.NIM]
+        class_query = lang_queries[cs.QUERY_CLASSES]
+        if not class_query:
+            return
+
+        cursor = QueryCursor(class_query)
+        captures = cursor.captures(root_node)
+
+        from ..language_spec import NIM_FQN_SPEC
+        from ..types_defs import NodeType
+
+        for capture_name, nodes in captures.items():
+            if capture_name == cs.QUERY_CAPTURE_CLASS:
+                for node in nodes:
+                    class_name = NIM_FQN_SPEC.get_name(node)
+                    if not class_name:
+                        continue
+
+                    class_qn = f"{module_qn}.{class_name}"
+                    self.function_registry[class_qn] = NodeType.CLASS
+
+                    self.ingestor.ensure_node_batch(
+                        cs.NodeLabel.CLASS,
+                        {
+                            cs.KEY_QUALIFIED_NAME: class_qn,
+                            cs.KEY_NAME: class_name,
+                        },
+                    )
+
+                    self.ingestor.ensure_relationship_batch(
+                        (cs.NodeLabel.MODULE, cs.KEY_QUALIFIED_NAME, module_qn),
+                        cs.RelationshipType.DEFINES,
+                        (cs.NodeLabel.CLASS, cs.KEY_QUALIFIED_NAME, class_qn),
+                    )
 
     def process_dependencies(self, filepath: Path) -> None:
         logger.info(ls.DEF_PARSING_DEPENDENCY.format(path=filepath))

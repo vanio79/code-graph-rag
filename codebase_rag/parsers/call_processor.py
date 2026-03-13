@@ -41,7 +41,15 @@ class CallProcessor:
             class_inheritance=class_inheritance,
         )
 
-    def _get_node_name(self, node: Node, field: str = cs.FIELD_NAME) -> str | None:
+    def _get_node_name(
+        self, node: Node, language: cs.SupportedLanguage, field: str = cs.FIELD_NAME
+    ) -> str | None:
+        from ..language_spec import LANGUAGE_FQN_SPECS
+
+        spec = LANGUAGE_FQN_SPECS.get(language)
+        if spec:
+            return spec.get_name(node)
+
         name_node = node.child_by_field_name(field)
         if not name_node:
             return None
@@ -90,17 +98,19 @@ class CallProcessor:
         for func_node in func_nodes:
             if not isinstance(func_node, Node):
                 continue
-            if self._is_method(func_node, lang_config):
+
+            is_method = self._is_method(func_node, lang_config)
+            if is_method:
                 continue
 
             if language == cs.SupportedLanguage.CPP:
                 func_name = cpp_utils.extract_function_name(func_node)
             else:
-                func_name = self._get_node_name(func_node)
+                func_name = self._get_node_name(func_node, language)
             if not func_name:
                 continue
             if func_qn := self._build_nested_qualified_name(
-                func_node, module_qn, func_name, lang_config
+                func_node, module_qn, func_name, language, lang_config
             ):
                 self._ingest_function_calls(
                     func_node,
@@ -112,7 +122,9 @@ class CallProcessor:
                 )
 
     def _get_rust_impl_class_name(self, class_node: Node) -> str | None:
-        class_name = self._get_node_name(class_node, cs.FIELD_TYPE)
+        class_name = self._get_node_name(
+            class_node, cs.SupportedLanguage.RUST, cs.FIELD_TYPE
+        )
         if class_name:
             return class_name
         return next(
@@ -129,7 +141,7 @@ class CallProcessor:
     ) -> str | None:
         if language == cs.SupportedLanguage.RUST and class_node.type == cs.TS_IMPL_ITEM:
             return self._get_rust_impl_class_name(class_node)
-        return self._get_node_name(class_node)
+        return self._get_node_name(class_node, language)
 
     def _process_methods_in_class(
         self,
@@ -238,6 +250,15 @@ class CallProcessor:
                     object_text = str(object_node.text.decode(cs.ENCODING_UTF8))
                     return f"{object_text}{cs.SEPARATOR_DOT}{method_name}"
 
+        # (H) Handle Nim dot_expression in calls: u.getName()
+        if (
+            func_node := call_node.child_by_field_name(cs.TS_FIELD_FUNCTION)
+        ) and func_node.type == "dot_expression":
+            left = func_node.child_by_field_name(cs.TS_FIELD_LEFT)
+            right = func_node.child_by_field_name(cs.TS_FIELD_RIGHT)
+            if left and right and left.text and right.text:
+                return f"{left.text.decode(cs.ENCODING_UTF8)}{cs.SEPARATOR_DOT}{right.text.decode(cs.ENCODING_UTF8)}"
+
         if name_node := call_node.child_by_field_name(cs.FIELD_NAME):
             if name_node.text is not None:
                 return str(name_node.text.decode(cs.ENCODING_UTF8))
@@ -301,7 +322,7 @@ class CallProcessor:
                 )
             else:
                 callee_info = self._resolver.resolve_function_call(
-                    call_name, module_qn, local_var_types, class_context
+                    call_name, module_qn, language, local_var_types, class_context
                 )
             if callee_info:
                 callee_type, callee_qn = callee_info
@@ -332,6 +353,7 @@ class CallProcessor:
         func_node: Node,
         module_qn: str,
         func_name: str,
+        language: cs.SupportedLanguage,
         lang_config: LanguageSpec,
     ) -> str | None:
         path_parts: list[str] = []
@@ -345,10 +367,8 @@ class CallProcessor:
 
         while current and current.type not in lang_config.module_node_types:
             if current.type in lang_config.function_node_types:
-                if name_node := current.child_by_field_name(cs.FIELD_NAME):
-                    text = name_node.text
-                    if text is not None:
-                        path_parts.append(text.decode(cs.ENCODING_UTF8))
+                if name := self._get_node_name(current, language):
+                    path_parts.append(name)
             elif current.type in lang_config.class_node_types:
                 return None
 

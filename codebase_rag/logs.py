@@ -441,6 +441,9 @@ IMP_CPP_MODULE_IMPL = "C++20 module implementation: {name}"
 IMP_CPP_MODULE_IFACE = "C++20 module interface: {name}"
 IMP_CPP_PARTITION = "C++20 module partition import: {partition} -> {full}"
 IMP_GENERIC = "Generic import parsing for {language}: {node_type}"
+IMP_NIM_IMPORT = "Nim import: {name} -> {qn}"
+IMP_NIM_ALIAS = "Nim aliased import: {alias} -> {name} ({qn})"
+IMP_NIM_FROM = "Nim from import: {module} -> {qn}"
 
 # (H) Structure processor logs
 STRUCT_IDENTIFIED_PACKAGE = "  Identified Package: {package_qn}"

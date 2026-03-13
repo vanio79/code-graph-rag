@@ -12,6 +12,7 @@ from .import_processor import ImportProcessor
 from .java import JavaTypeInferenceEngine
 from .js_ts import JsTypeInferenceEngine
 from .lua import LuaTypeInferenceEngine
+from .nim import NimTypeInferenceEngine
 from .py import PythonTypeInferenceEngine, resolve_class_name
 
 if TYPE_CHECKING:
@@ -33,6 +34,7 @@ class TypeInferenceEngine:
         "_lua_type_inference",
         "_js_type_inference",
         "_python_type_inference",
+        "_nim_type_inference",
     )
 
     def __init__(
@@ -61,6 +63,7 @@ class TypeInferenceEngine:
         self._lua_type_inference: LuaTypeInferenceEngine | None = None
         self._js_type_inference: JsTypeInferenceEngine | None = None
         self._python_type_inference: PythonTypeInferenceEngine | None = None
+        self._nim_type_inference: NimTypeInferenceEngine | None = None
 
     @property
     def java_type_inference(self) -> JavaTypeInferenceEngine:
@@ -116,6 +119,19 @@ class TypeInferenceEngine:
             )
         return self._python_type_inference
 
+    @property
+    def nim_type_inference(self) -> NimTypeInferenceEngine:
+        if self._nim_type_inference is None:
+            self._nim_type_inference = NimTypeInferenceEngine(
+                import_processor=self.import_processor,
+                function_registry=self.function_registry,
+                project_name=self.project_name,
+                queries=self.queries,
+                module_qn_to_file_path=self.module_qn_to_file_path,
+                ast_cache=self.ast_cache,
+            )
+        return self._nim_type_inference
+
     def build_local_variable_type_map(
         self, caller_node: ASTNode, module_qn: str, language: cs.SupportedLanguage
     ) -> dict[str, str]:
@@ -136,8 +152,30 @@ class TypeInferenceEngine:
                 return self.lua_type_inference.build_local_variable_type_map(
                     caller_node, module_qn
                 )
+            case cs.SupportedLanguage.NIM:
+                return self.nim_type_inference.build_local_variable_type_map(
+                    caller_node, module_qn
+                )
             case _:
                 return {}
+
+    def infer_expression_return_type(
+        self,
+        expression: str,
+        module_qn: str,
+        language: cs.SupportedLanguage,
+        local_var_types: dict[str, str] | None = None,
+    ) -> str | None:
+        match language:
+            case cs.SupportedLanguage.PYTHON:
+                return self.python_type_inference._infer_expression_return_type(
+                    expression, module_qn, local_var_types
+                )
+            # Add other languages as needed
+            case _:
+                if local_var_types and expression in local_var_types:
+                    return local_var_types[expression]
+                return None
 
     def _resolve_class_name(self, class_name: str, module_qn: str) -> str | None:
         return resolve_class_name(
